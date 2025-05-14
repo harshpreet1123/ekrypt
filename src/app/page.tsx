@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const Home = () => {
@@ -10,7 +9,6 @@ const Home = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isClient, setIsClient] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
     setIsClient(true);
@@ -41,7 +39,9 @@ const Home = () => {
 
       const data = await res.json();
       if (res.ok) {
-        setSuccess(`Your short URL: ${data.shortUrl}`);
+        setSuccess(
+          `Your short URL: ${process.env.NEXT_PUBLIC_SITE_URL}/${data.shortUrl}`
+        );
         setUrl("");
         setExpiresAt("");
         setOneTimeOnly(false);
@@ -211,7 +211,7 @@ const Home = () => {
                   placeholder="https://example.com/very-long-url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all text-black"
                 />
               </div>
 
@@ -227,7 +227,7 @@ const Home = () => {
                   id="expiresAt"
                   value={expiresAt}
                   onChange={(e) => setExpiresAt(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all"
+                  className="w-full px-4 py-3 text-black border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all"
                 />
               </div>
 

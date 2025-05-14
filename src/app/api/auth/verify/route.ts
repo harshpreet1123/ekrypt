@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
   const { email, otp } = await req.json();
 
   const user = await User.findOne({ email });
+  console.log(user);
 
   if (!user || user.otp !== otp || new Date(user.otpExpiresAt) < new Date()) {
     return new NextResponse("Invalid or expired OTP", { status: 400 });
@@ -19,7 +20,9 @@ export async function POST(req: NextRequest) {
   user.otpExpiresAt = undefined;
   await user.save();
 
-  const token = signToken(user._id.toString());
-
-  return NextResponse.json({ token });
+  return NextResponse.json({
+    data: {},
+    sucess: true,
+    message: "email verified",
+  });
 }
