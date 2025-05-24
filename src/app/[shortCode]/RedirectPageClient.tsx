@@ -1,224 +1,346 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
-import { useEffect, useState } from "react";
-import Link from "next/link";
 
-const RedirectPageClient = ({ shortCode }: { shortCode: string }) => {
-  const [countdown, setCountdown] = useState(5);
-  const [error, setError] = useState("");
+import { useState, useEffect } from "react";
+import bcrypt from "bcryptjs";
+import { supabase } from "@/lib/supabaseClient";
+
+interface LinkData {
+  original_url: string;
+  title: string | null;
+  password_hash: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+  click_count: number;
+  max_clicks: number | null;
+  one_time_only: boolean;
+}
+
+export default function RedirectPage({ shortCode }: { shortCode: string }) {
+  const [linkData, setLinkData] = useState<LinkData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [destination, setDestination] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(5);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [isPasswordVerified, setIsPasswordVerified] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
-    const fetchLink = async () => {
+    const fetchLinkData = async () => {
       try {
-        const res = await fetch(`/api/links/${shortCode}`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        console.log("=======");
+        console.log(shortCode);
+        console.log("=======");
 
-        if (res.ok) {
-          const data = await res.json();
-          setDestination(data.destination);
-          setLoading(false);
-        } else {
-          const errorData = await res.json();
-          setError(errorData.message || "Error redirecting");
-          setLoading(false);
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from("links")
+          .select("*")
+          .ilike("short_code", shortCode.trim())
+          .is("deleted_at", null)
+          .limit(1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) throw new Error("Link not found");
+
+        const link = data[0];
+                console.log("=======");
+
+        console.log(link)
+
+        // Check if link is active
+        if (!link.is_active) {
+          throw new Error("This link has been deactivated");
+        }
+
+        // Check if link is expired
+        if (link.expires_at && new Date(link.expires_at) < new Date()) {
+          throw new Error("This link has expired");
+        }
+
+        // Check if max clicks reached
+        if (link.max_clicks && link.click_count >= link.max_clicks) {
+          throw new Error("Maximum clicks reached for this link");
+        }
+
+        setLinkData(link);
+
+        // If no password required, mark as verified
+        if (!link.password_hash) {
+          setIsPasswordVerified(true);
         }
       } catch (err) {
-        setError("An error occurred while processing your request");
+        setError(err instanceof Error ? err.message : "An error occurred");
+      } finally {
         setLoading(false);
       }
     };
 
-    fetchLink();
+    fetchLinkData();
   }, [shortCode]);
 
   useEffect(() => {
-    if (!loading && destination && countdown > 0) {
-      const timer = setTimeout(() => {
-        setCountdown(countdown - 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else if (countdown === 0 && destination) {
-      window.location.href = destination;
+    if (!isPasswordVerified || !linkData) return;
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleRedirect();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isPasswordVerified, linkData]);
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password) {
+      setPasswordError("Password is required");
+      return;
     }
-  }, [countdown, destination, loading]);
+
+    if (!linkData?.password_hash) {
+      setIsPasswordVerified(true);
+      return;
+    }
+
+    try {
+      // Verify password with bcrypt
+      const isMatch = await bcrypt.compare(password, linkData.password_hash);
+      if (isMatch) {
+        setIsPasswordVerified(true);
+        setPasswordError("");
+      } else {
+        setPasswordError("Incorrect password");
+      }
+    } catch (err) {
+      setPasswordError("Error verifying password");
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handleRedirect = async () => {
+    if (!linkData) return;
+
+    try {
+      setIsRedirecting(true);
+
+      // Update click count in Supabase
+      if (!linkData.one_time_only) {
+        await supabase
+          .from("links")
+          .update({ click_count: linkData.click_count + 1 })
+          .eq("short_code", shortCode);
+      } else {
+        // For one-time links, deactivate after use
+        await supabase
+          .from("links")
+          .update({ is_active: false, click_count: linkData.click_count + 1 })
+          .eq("short_code", shortCode);
+      }
+
+      // Perform redirect
+      window.location.href = linkData.original_url;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (err) {
+      setError("Failed to redirect. Please try again.");
+      setIsRedirecting(false);
+    }
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-amber-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-600 mx-auto mb-4"></div>
-          <p className="text-gray-700">Preparing your redirect...</p>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-amber-50">
-        {/* Navbar - Same as create link page */}
-        <nav className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center">
-                <span className="text-xl font-bold text-teal-600">Ekrypt</span>
-              </div>
-              <div className="flex items-center space-x-4">
-                <Link
-                  href="/features"
-                  className="text-gray-600 hover:text-teal-600 transition-colors"
-                >
-                  Features
-                </Link>
-                <Link
-                  href="/faq"
-                  className="text-gray-600 hover:text-teal-600 transition-colors"
-                >
-                  FAQ
-                </Link>
-                <Link
-                  href="/login"
-                  className="text-gray-600 hover:text-teal-600 transition-colors"
-                >
-                  Login
-                </Link>
-                <Link
-                  href="/signup"
-                  className="bg-teal-600 text-white px-4 py-2 rounded-md hover:bg-teal-700 transition-colors"
-                >
-                  Sign Up
-                </Link>
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        {/* Error Content */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="bg-white p-8 rounded-xl shadow-lg border border-gray-100 text-center">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-4">
-              Redirect Error
-            </h2>
-            <div className="p-4 bg-red-50 text-red-700 rounded-lg mb-6">
-              {error}
-            </div>
-            <Link
-              href="/"
-              className="inline-block bg-teal-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-teal-700 transition-colors"
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+        <div className="max-w-md mx-auto px-6 py-20 text-center">
+          <div className="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-8">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-12 w-12"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              Back to Home
-            </Link>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
+            </svg>
+          </div>
+
+          <h1 className="text-3xl font-bold mb-4">Error</h1>
+          <p className="text-xl text-gray-300 mb-8">{error}</p>
+
+          <a
+            // href="/"
+            className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity inline-block"
+          >
+            Go to Homepage
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (linkData?.password_hash && !isPasswordVerified) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+        <div className="max-w-md mx-auto px-6 py-20">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-yellow-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-10 w-10"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold mb-4">Password Required</h1>
+            <p className="text-gray-300">
+              This link is protected with a password
+            </p>
+          </div>
+
+          <div className="bg-gray-800/50 backdrop-blur-md rounded-xl p-8 border border-gray-700">
+            <form onSubmit={handlePasswordSubmit}>
+              <div className="mb-6">
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-medium text-gray-300 mb-2"
+                >
+                  Password
+                </label>
+                <input
+                  type="password"
+                  id="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setPasswordError("");
+                  }}
+                  placeholder="Enter password"
+                  className={`w-full px-4 py-3 bg-gray-900/50 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
+                    passwordError ? "border-red-500" : "border-gray-600"
+                  }`}
+                />
+                {passwordError && (
+                  <p className="mt-1 text-sm text-red-400">{passwordError}</p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Continue
+              </button>
+            </form>
           </div>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-50 to-amber-50">
-      {/* Navbar - Same as create link page */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <span className="text-xl font-bold text-teal-600">Ekrypt</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/features"
-                className="text-gray-600 hover:text-teal-600 transition-colors"
-              >
-                Features
-              </Link>
-              <Link
-                href="/faq"
-                className="text-gray-600 hover:text-teal-600 transition-colors"
-              >
-                FAQ
-              </Link>
-              <Link
-                href="/login"
-                className="text-gray-600 hover:text-teal-600 transition-colors"
-              >
-                Login
-              </Link>
-              <Link
-                href="/signup"
-                className="bg-teal-600 text-white px-4 py-2 rounded-md hover:bg-teal-700 transition-colors"
-              >
-                Sign Up
-              </Link>
-            </div>
+  if (isRedirecting) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-24 h-24 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-8">
+            <svg
+              className="animate-spin h-12 w-12"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
           </div>
+          <h1 className="text-3xl font-bold mb-4">Redirecting...</h1>
+          <p className="text-gray-300">Taking you to your destination</p>
         </div>
-      </nav>
+      </div>
+    );
+  }
 
-      {/* Redirect Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="bg-white p-8 rounded-xl shadow-lg border border-gray-100 text-center">
-          <h2 className="text-2xl font-semibold text-gray-800 mb-6">
-            Redirecting...
-          </h2>
-          <div className="mb-6">
-            <div className="w-24 h-24 mx-auto mb-4 relative">
-              <svg
-                className="w-full h-full"
-                viewBox="0 0 100 100"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="45"
-                  fill="none"
-                  stroke="#e2e8f0"
-                  strokeWidth="8"
-                />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="45"
-                  fill="none"
-                  stroke="#0d9488"
-                  strokeWidth="8"
-                  strokeDasharray="283"
-                  strokeDashoffset={(283 * (5 - countdown)) / 5}
-                  strokeLinecap="round"
-                  transform="rotate(-90 50 50)"
-                />
-              </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-teal-600">
-                {countdown}
-              </span>
-            </div>
-            <p className="text-gray-600 mb-6">
-              You're being redirected to:{" "}
-              <span className="text-teal-600 break-all">{destination}</span>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white flex items-center justify-center">
+      <div className="max-w-lg mx-auto px-6 text-center">
+        <div className="w-32 h-32 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8 relative">
+          <div className="text-4xl font-bold">{countdown}</div>
+          <div className="absolute inset-0 rounded-full border-4 border-blue-400 animate-ping opacity-20"></div>
+        </div>
+
+        <h1 className="text-4xl font-bold mb-4">
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+            Redirecting in {countdown}
+          </span>
+        </h1>
+        <p className="text-xl text-gray-300 mb-8">
+          You will be automatically redirected to your destination
+        </p>
+
+        {linkData?.title && (
+          <div className="bg-gray-800/50 backdrop-blur-md rounded-xl p-6 border border-gray-700 mb-8">
+            <h3 className="text-lg font-semibold mb-2 text-green-400">
+              {linkData.title}
+            </h3>
+            <p className="text-gray-400 text-sm break-all">
+              Destination: {linkData.original_url}
             </p>
           </div>
-          <div className="space-y-4">
-            <button
-              onClick={() => (window.location.href = destination)}
-              className="w-full bg-gradient-to-r from-teal-600 to-amber-500 text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity shadow-md"
-            >
-              Skip Wait ({countdown}s)
-            </button>
-            <Link
-              href="/"
-              className="inline-block text-gray-600 hover:text-teal-600 transition-colors"
-            >
-              Back to Home
-            </Link>
-          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row justify-center gap-4">
+          <button
+            onClick={handleRedirect}
+            className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity"
+          >
+            Go Now
+          </button>
+          <a
+            // href="/"
+            className="px-8 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors text-center"
+          >
+            Cancel
+          </a>
         </div>
       </div>
     </div>
   );
-};
-
-export default RedirectPageClient;
+}

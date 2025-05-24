@@ -1,9 +1,10 @@
-import RedirectPageClient from "./RedirectPageClient";
+import RedirectPage from "./RedirectPageClient";
 
 interface PageProps {
-  params: { shortCode: string };
+  params: Promise<{ shortCode: string }>; // params is a Promise
 }
 
-export default function Page({ params }: PageProps) {
-  return <RedirectPageClient shortCode={params.shortCode} />;
+export default async function Page({ params }: PageProps) {
+  const resolvedParams = await params; // <-- await here
+  return <RedirectPage shortCode={resolvedParams.shortCode} />;
 }
