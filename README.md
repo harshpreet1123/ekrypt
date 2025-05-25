@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🔐 Ekrypt – Secure Link Sharing with Privacy and Analytics
 
-## Getting Started
+Ekrypt is a privacy-focused link shortener built using **Next.js (TypeScript)** and **Supabase**. It supports secure, customizable links with advanced options like password protection, expiry controls, and real-time analytics — all wrapped in a clean, minimal dashboard.
 
-First, run the development server:
+Built as a showcase project for job interviews to highlight full-stack skills and product thinking.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+[🌐 Live Demo](https://ekrypt.vercel.app)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ✨ Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 🔗 Link Management
+- Create shortened links with:
+  - 🔑 Password protection
+  - 🕒 Expiry date
+  - 💥 Burn-after-read
+  - 🔢 Click limit
 
-## Learn More
+### 📊 Analytics
+- Per-link analytics (IP, browser, device, timestamp)
+- Visual dashboard with total clicks per link
 
-To learn more about Next.js, take a look at the following resources:
+### 👤 Auth & User Features
+- Login / Signup (Supabase Auth)
+- Forgot password flow
+- View & edit profile
+- Sign-out with confirmation
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 📱 Share & Extras
+- Generate and download QR code for each link
+- Share URL directly via native share dialog
+- Open Graph (OG) tags for better social previews
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 🧱 Tech Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Layer           | Tech Used                         |
+|----------------|-----------------------------------|
+| **Frontend**    | Next.js + TypeScript |
+| **Styling**     | Tailwind CSS                      |
+| **Database**    | Supabase (PostgreSQL)             |
+| **Auth**        | Supabase Auth                     |
+| **Hosting**     | Vercel                            |
