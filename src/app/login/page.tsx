@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { AuthForm } from "@/components/AuthForm";
 import { FormInput } from "@/components/FormInput";
@@ -14,6 +14,20 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
+
+    useEffect(() => {
+      const checkSession = async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+  
+        if (session) {
+          router.replace("/dashboard");
+        }
+      };
+  
+      checkSession();
+    }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

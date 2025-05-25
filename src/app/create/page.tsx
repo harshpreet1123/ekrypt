@@ -1,13 +1,18 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import * as yup from "yup";
+import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
+import bcrypt from "bcryptjs";
+import { AuthUser } from "@supabase/supabase-js";
 
 // TypeScript interfaces
 interface FormData {
   originalUrl: string;
   title: string | undefined;
+  description: string | undefined;
   expiresAt: string | undefined;
   maxClicks: number | null | undefined;
   oneTimeOnly: boolean;
@@ -16,11 +21,13 @@ interface FormData {
 }
 
 interface CreatedLink {
+  id: string;
   shortUrl: string;
   originalUrl: string;
   title: string;
   clicks: number;
   created: string;
+  shortCode: string;
 }
 
 // Validation schema
@@ -30,6 +37,7 @@ const validationSchema = yup.object().shape({
     .required("Original URL is required")
     .url("Please enter a valid URL"),
   title: yup.string().notRequired(),
+  description: yup.string().notRequired(),
   expiresAt: yup.string().notRequired(),
   maxClicks: yup
     .number()
@@ -43,16 +51,19 @@ const validationSchema = yup.object().shape({
   password: yup.string().when("passwordProtected", {
     is: true,
     then: (schema) =>
-      schema.required(
-        "Password is required when password protection is enabled"
-      ),
+      schema
+        .required("Password is required when password protection is enabled")
+        .min(4, "Password must be at least 4 characters"),
     otherwise: (schema) => schema.notRequired(),
   }),
 });
 
 export default function CreateLink() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [createdLink, setCreatedLink] = useState<CreatedLink | null>(null);
+  const [user, setUser] = useState<AuthUser>();
+  const [authLoading, setAuthLoading] = useState(true);
 
   const {
     control,
@@ -61,11 +72,12 @@ export default function CreateLink() {
     formState: { errors },
   } = useForm<FormData>({
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    //@ts-expect-error
+    //@ts-ignore
     resolver: yupResolver(validationSchema),
     defaultValues: {
       originalUrl: "",
       title: undefined,
+      description: undefined,
       expiresAt: undefined,
       maxClicks: null,
       oneTimeOnly: false,
@@ -76,32 +88,129 @@ export default function CreateLink() {
 
   const passwordProtected = watch("passwordProtected");
 
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      setUser(session.user);
+      setAuthLoading(false);
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.replace("/login");
+      } else {
+        setUser(session.user);
+        setAuthLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  const generateShortCode = () => {
+    return Math.random().toString(36).substring(2, 8);
+  };
+
   const onSubmit = async (data: FormData) => {
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      const shortUrl = `https://ekrypt.to/${Math.random()
-        .toString(36)
-        .substring(2, 8)}`;
+    try {
+      const shortCode = generateShortCode();
+      let passwordHash = null;
+
+      // Hash password if provided
+      if (data.passwordProtected && data.password) {
+        passwordHash = await bcrypt.hash(data.password, 10);
+      }
+
+      // Prepare data for insertion
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const insertData: any = {
+        original_url: data.originalUrl,
+        short_code: shortCode,
+        title: data.title || null,
+        description: data.description || null,
+        expires_at: data.expiresAt
+          ? new Date(data.expiresAt).toISOString()
+          : null,
+        max_clicks: data.maxClicks || null,
+        click_count: 0,
+        one_time_only: data.oneTimeOnly,
+        password_hash: passwordHash,
+        is_active: true,
+        user_id: user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Insert the new link into Supabase
+      const { data: linkData, error: insertError } = await supabase
+        .from("links")
+        .insert([insertData])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      // Construct the shortened URL
+      const shortUrl = `${window.location.origin}/${shortCode}`;
+
       setCreatedLink({
+        id: linkData.id,
         shortUrl,
         originalUrl: data.originalUrl,
         title: data.title || "Untitled Link",
         clicks: 0,
         created: new Date().toLocaleDateString(),
+        shortCode,
       });
+    } catch (error) {
+      console.error("Error creating link:", error);
+      alert("Failed to create link. Please try again.");
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   const copyToClipboard = async (text: string): Promise<void> => {
     try {
       await navigator.clipboard.writeText(text);
+      // You could add a toast notification here
     } catch (err) {
       console.error("Failed to copy text: ", err);
     }
   };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (createdLink) {
     return (
@@ -144,12 +253,18 @@ export default function CreateLink() {
               >
                 Create Another
               </button>
-              <a
-                href="#"
+              <button
+                onClick={() => router.push("/dashboard")}
                 className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Dashboard
-              </a>
+              </button>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              >
+                Sign Out
+              </button>
             </div>
           </div>
         </nav>
@@ -255,12 +370,12 @@ export default function CreateLink() {
             >
               Create Another Link
             </button>
-            <a
-              href="#"
+            <button
+              onClick={() => router.push("/dashboard")}
               className="px-8 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors text-center"
             >
-              View Analytics
-            </a>
+              View Dashboard
+            </button>
           </div>
         </div>
 
@@ -328,18 +443,18 @@ export default function CreateLink() {
           </div>
 
           <div className="flex items-center space-x-4">
-            <a
-              href="#"
+            <button
+              onClick={() => router.push("/dashboard")}
               className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
             >
               Dashboard
-            </a>
-            <a
-              href="#"
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
               className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity"
             >
-              My Links
-            </a>
+              Sign Out
+            </button>
           </div>
         </div>
       </nav>
@@ -359,7 +474,12 @@ export default function CreateLink() {
 
         {/* Form */}
         <div className="bg-gray-800/50 backdrop-blur-md rounded-xl p-8 border border-gray-700">
-          <div className="space-y-6">
+          <form
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            //@ts-ignore
+            onSubmit={handleSubmit(onSubmit)}
+            className="space-y-6"
+          >
             {/* Original URL */}
             <div>
               <label
@@ -407,6 +527,29 @@ export default function CreateLink() {
                     type="text"
                     id="title"
                     placeholder="Enter a descriptive title for your link"
+                    className="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                  />
+                )}
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <label
+                htmlFor="description"
+                className="block text-sm font-medium text-gray-300 mb-2"
+              >
+                Description (Optional)
+              </label>
+              <Controller
+                name="description"
+                control={control}
+                render={({ field }) => (
+                  <textarea
+                    {...field}
+                    id="description"
+                    rows={3}
+                    placeholder="Enter a description for your link"
                     className="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                   />
                 )}
@@ -576,9 +719,7 @@ export default function CreateLink() {
             {/* Submit Button */}
             <div className="pt-6">
               <button
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                //@ts-expect-error
-                onClick={handleSubmit(onSubmit)}
+                type="submit"
                 disabled={isLoading}
                 className={`w-full px-8 py-4 font-bold rounded-lg transition-all flex items-center justify-center ${
                   isLoading
@@ -615,7 +756,7 @@ export default function CreateLink() {
                 )}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
 

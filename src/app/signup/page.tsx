@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { AuthForm } from "@/components/AuthForm";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
-// import router from "next/router";
+import { Toaster, toast } from "react-hot-toast";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -18,13 +18,30 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const checkSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        router.replace("/dashboard");
+      }
+    };
+
+    checkSession();
+  }, [router]);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
       setError("Passwords don't match!");
+      return;
     }
-    console.log(e);
+    
     setIsLoading(true);
+    setError(null);
+    
     try {
       // Sign up with Supabase
       const { error: signUpError } = await supabase.auth.signUp({
@@ -42,11 +59,46 @@ export default function SignupPage() {
         throw signUpError;
       }
 
-      // If signup is successful, redirect to verification page
-      router.push("/verify-email");
-    } catch (error: unknown) {
+      // Show success toast
+      toast.success(
+        <div>
+          <p className="font-semibold">Account created successfully!</p>
+          <p>Please verify your email to access your account.</p>
+        </div>,
+        {
+          duration: 3000,
+          position: "top-center",
+          style: {
+            background: "#4BB543",
+            color: "white",
+            padding: "16px",
+            borderRadius: "8px",
+            maxWidth: "500px",
+          },
+        }
+      );
+
+      // Wait for the toast to show before redirecting
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Redirect to login page
+      router.replace("/login");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
       console.error("Signup error:", error);
-      // setError(error?.message);
+      setError(error.message || "An error occurred during signup");
+      toast.error(
+        error.message || "An error occurred during signup",
+        {
+          position: "top-center",
+          style: {
+            background: "#FF3333",
+            color: "white",
+            padding: "16px",
+            borderRadius: "8px",
+          },
+        }
+      );
     } finally {
       setIsLoading(false);
     }
@@ -54,6 +106,9 @@ export default function SignupPage() {
 
   return (
     <Layout title="Ekrypt | Sign Up" description="Create your Ekrypt account">
+      {/* Toast container */}
+      <Toaster />
+      
       <main className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-12">
         <AuthForm
           title=""
@@ -69,7 +124,7 @@ export default function SignupPage() {
                 label="Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="your@email.com"
+                placeholder="Your full name"
                 type="default"
               />
               <FormInput

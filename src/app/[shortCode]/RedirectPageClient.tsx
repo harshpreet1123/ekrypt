@@ -5,8 +5,10 @@
 import { useState, useEffect } from "react";
 import bcrypt from "bcryptjs";
 import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
 
 interface LinkData {
+  id: string;
   original_url: string;
   title: string | null;
   password_hash: string | null;
@@ -17,23 +19,97 @@ interface LinkData {
   one_time_only: boolean;
 }
 
+// Helper function to detect device type
+const getDeviceType = (): string => {
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (/mobile|android|iphone|ipad|phone|tablet/.test(userAgent)) {
+    if (/tablet|ipad/.test(userAgent)) return "tablet";
+    return "mobile";
+  }
+  return "desktop";
+};
+
+// Helper function to extract browser info
+const getBrowserInfo = (): string => {
+  const userAgent = navigator.userAgent;
+  if (userAgent.includes("Chrome") && !userAgent.includes("Edg"))
+    return "Chrome";
+  if (userAgent.includes("Firefox")) return "Firefox";
+  if (userAgent.includes("Safari") && !userAgent.includes("Chrome"))
+    return "Safari";
+  if (userAgent.includes("Edg")) return "Edge";
+  if (userAgent.includes("Opera")) return "Opera";
+  return "Unknown";
+};
+
+// Helper function to extract OS info
+const getOSInfo = (): string => {
+  const userAgent = navigator.userAgent;
+  if (userAgent.includes("Windows")) return "Windows";
+  if (userAgent.includes("Mac OS X") || userAgent.includes("macOS"))
+    return "macOS";
+  if (userAgent.includes("Linux")) return "Linux";
+  if (userAgent.includes("Android")) return "Android";
+  if (
+    userAgent.includes("iOS") ||
+    userAgent.includes("iPhone") ||
+    userAgent.includes("iPad")
+  )
+    return "iOS";
+  return "Unknown";
+};
+
+// Helper function to detect if it's a bot
+const isBot = (): boolean => {
+  const botPatterns = [
+    "bot",
+    "crawler",
+    "spider",
+    "scraper",
+    "facebookexternalhit",
+    "twitterbot",
+    "linkedinbot",
+    "whatsapp",
+    "telegram",
+    "googlebot",
+    "bingbot",
+    "slackbot",
+    "discordbot",
+  ];
+  const userAgent = navigator.userAgent.toLowerCase();
+  return botPatterns.some((pattern) => userAgent.includes(pattern));
+};
+
+// Helper function to get user's IP and country (using a free service)
+const getLocationData = async (): Promise<{ ip: string; country: string }> => {
+  try {
+    const response = await fetch("https://ipapi.co/json/");
+    const data = await response.json();
+    return {
+      ip: data.ip || "Unknown",
+      country: data.country_name || "Unknown",
+    };
+  } catch (error) {
+    console.warn("Failed to get location data:", error);
+    return { ip: "Unknown", country: "Unknown" };
+  }
+};
+
 export default function RedirectPage({ shortCode }: { shortCode: string }) {
   const [linkData, setLinkData] = useState<LinkData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(5);
+  const [countdown, setCountdown] = useState(3);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [analyticsStored, setAnalyticsStored] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const fetchLinkData = async () => {
       try {
-        console.log("=======");
-        console.log(shortCode);
-        console.log("=======");
-
         setLoading(true);
 
         const { data, error } = await supabase
@@ -44,12 +120,12 @@ export default function RedirectPage({ shortCode }: { shortCode: string }) {
           .limit(1);
 
         if (error) throw error;
-        if (!data || data.length === 0) throw new Error("Link not found");
+        if (!data || data.length === 0) {
+          router.replace("/not-found");
+          throw new Error("Link not found");
+        }
 
         const link = data[0];
-                console.log("=======");
-
-        console.log(link)
 
         // Check if link is active
         if (!link.is_active) {
@@ -125,12 +201,61 @@ export default function RedirectPage({ shortCode }: { shortCode: string }) {
     }
   };
 
+  // Function to store analytics data
+  const storeAnalytics = async (linkId: string) => {
+    // Prevent duplicate analytics entries
+    if (analyticsStored) return;
+
+    try {
+      setAnalyticsStored(true);
+
+      // Get location data
+      const locationData = await getLocationData();
+
+      // Prepare analytics data
+      const analyticsData = {
+        link_id: linkId,
+        timestamp: new Date().toISOString(),
+        ip: locationData.ip,
+        user_agent: navigator.userAgent,
+        referrer: document.referrer || null,
+        country: locationData.country,
+        browser: getBrowserInfo(),
+        os: getOSInfo(),
+        device_type: getDeviceType(),
+        is_bot: isBot(),
+      };
+
+      console.log("Storing analytics data:", analyticsData);
+
+      // Insert analytics data into Supabase
+      const { error: analyticsError } = await supabase
+        .from("analytics")
+        .insert([analyticsData]);
+
+      if (analyticsError) {
+        console.error("Failed to store analytics:", analyticsError);
+        setAnalyticsStored(false); // Reset on error to allow retry
+        // Don't throw error here - analytics failure shouldn't block redirect
+      } else {
+        console.log("Analytics data stored successfully");
+      }
+    } catch (error) {
+      console.error("Error storing analytics:", error);
+      setAnalyticsStored(false); // Reset on error to allow retry
+      // Don't throw error here - analytics failure shouldn't block redirect
+    }
+  };
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleRedirect = async () => {
     if (!linkData) return;
 
     try {
       setIsRedirecting(true);
+
+      // Store analytics data before redirect
+      await storeAnalytics(linkData.id);
 
       // Update click count in Supabase
       if (!linkData.one_time_only) {
@@ -148,7 +273,7 @@ export default function RedirectPage({ shortCode }: { shortCode: string }) {
 
       // Perform redirect
       window.location.href = linkData.original_url;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       setError("Failed to redirect. Please try again.");
       setIsRedirecting(false);
