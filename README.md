@@ -21,11 +21,6 @@ Built as a showcase project for job interviews to highlight full-stack skills an
 - Per-link analytics (IP, browser, device, timestamp)
 - Visual dashboard with total clicks per link
 
-### 👤 Auth & User Features
-- Login / Signup (Supabase Auth)
-- Forgot password flow
-- View & edit profile
-- Sign-out with confirmation
 
 ### 📱 Share & Extras
 - Generate and download QR code for each link
