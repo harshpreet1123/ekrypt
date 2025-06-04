@@ -1,10 +1,17 @@
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import Logo from "@/components/Logo";
 import { supabase } from "@/lib/supabaseClient";
 import { User } from "@supabase/supabase-js";
-import { LogOut, Plus, AlertTriangle, Loader2, BarChart3, Link2, MousePointer } from "lucide-react";
+import {
+  LogOut,
+  Plus,
+  AlertTriangle,
+  Loader2,
+  BarChart3,
+  Link2,
+  MousePointer,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -84,11 +91,15 @@ interface ActivityLog {
 type LinkStatus = "Active" | "Expired" | "Paused";
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<"analytics" | "links">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "links">(
+    "analytics"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const router = useRouter();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [linkToDelete, setLinkToDelete] = useState<string | null>(null);
 
   // Data states
   const [links, setLinks] = useState<Link[]>([]);
@@ -122,8 +133,10 @@ export default function Dashboard() {
 
   const getStatusFromLink = (link: Link): LinkStatus => {
     if (!link.is_active || link.deleted_at) return "Paused";
-    if (link.expires_at && new Date(link.expires_at) < new Date()) return "Expired";
-    if (link.max_clicks && link.click_count >= link.max_clicks) return "Expired";
+    if (link.expires_at && new Date(link.expires_at) < new Date())
+      return "Expired";
+    if (link.max_clicks && link.click_count >= link.max_clicks)
+      return "Expired";
     return "Active";
   };
 
@@ -155,7 +168,7 @@ export default function Dashboard() {
         return;
       }
 
-      const linkIds = typedLinksData.map(link => link.id);
+      const linkIds = typedLinksData.map((link) => link.id);
 
       // Fetch analytics
       const { data: analyticsData, error: analyticsError } = await supabase
@@ -177,110 +190,123 @@ export default function Dashboard() {
     }
   }, []);
 
-  const processAnalyticsData = useCallback((linksData: Link[], analyticsData: Analytics[]) => {
-    // Calculate stats
-    const totalClicks = linksData.reduce((sum, link) => sum + (link.click_count || 0), 0);
-    const activeLinks = linksData.filter(link => getStatusFromLink(link) === "Active").length;
-    const expiredLinks = linksData.filter(link => getStatusFromLink(link) === "Expired").length;
-
-    setStats({ totalClicks, activeLinks, expiredLinks });
-
-    // Process clicks over time (last 7 days)
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      return date.toISOString().split('T')[0];
-    });
-
-    const clicksByDate: ChartData[] = last7Days.map(date => {
-      const clicksOnDate = analyticsData.filter(
-        analytics => analytics.timestamp.split('T')[0] === date
+  const processAnalyticsData = useCallback(
+    (linksData: Link[], analyticsData: Analytics[]) => {
+      // Calculate stats
+      const totalClicks = linksData.reduce(
+        (sum, link) => sum + (link.click_count || 0),
+        0
+      );
+      const activeLinks = linksData.filter(
+        (link) => getStatusFromLink(link) === "Active"
       ).length;
-      return { date, clicks: clicksOnDate };
-    });
+      const expiredLinks = linksData.filter(
+        (link) => getStatusFromLink(link) === "Expired"
+      ).length;
 
-    setClicksOverTime(clicksByDate);
+      setStats({ totalClicks, activeLinks, expiredLinks });
 
-    // Process OS data
-    const osStats: Record<string, number> = {};
-    analyticsData.forEach(analytics => {
-      const os = analytics.os || "Unknown";
-      osStats[os] = (osStats[os] || 0) + 1;
-    });
-
-    const osDataProcessed: PieChartData[] = Object.entries(osStats)
-      .map(([name, value], index) => ({
-        name,
-        value,
-        color: ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"][index % 5]
-      }))
-      .slice(0, 5);
-
-    setOsData(osDataProcessed);
-
-    // Process browser data
-    const browserStats: Record<string, number> = {};
-    analyticsData.forEach(analytics => {
-      const browser = analytics.browser || "Unknown";
-      browserStats[browser] = (browserStats[browser] || 0) + 1;
-    });
-
-    const browserDataProcessed: BarChartData[] = Object.entries(browserStats)
-      .map(([name, clicks]) => ({ name, clicks }))
-      .sort((a, b) => b.clicks - a.clicks)
-      .slice(0, 5);
-
-    setBrowserData(browserDataProcessed);
-
-    // Process country data
-    const countryStats: Record<string, number> = {};
-    analyticsData.forEach(analytics => {
-      const country = analytics.country || "Unknown";
-      countryStats[country] = (countryStats[country] || 0) + 1;
-    });
-
-    const countryDataProcessed: BarChartData[] = Object.entries(countryStats)
-      .map(([name, clicks]) => ({ name, clicks }))
-      .sort((a, b) => b.clicks - a.clicks)
-      .slice(0, 5);
-
-    setCountryData(countryDataProcessed);
-
-    // Process device data
-    const deviceStats: Record<string, number> = {};
-    analyticsData.forEach(analytics => {
-      const device = analytics.device_type || "Unknown";
-      deviceStats[device] = (deviceStats[device] || 0) + 1;
-    });
-
-    const deviceDataProcessed: PieChartData[] = Object.entries(deviceStats)
-      .map(([name, value], index) => ({
-        name,
-        value,
-        color: ["#3B82F6", "#8B5CF6", "#10B981"][index % 3]
-      }));
-
-    setDeviceData(deviceDataProcessed);
-
-    // Process recent activity
-    const recentActivityProcessed: ActivityLog[] = analyticsData
-      .slice(0, 10)
-      .map(analytics => {
-        const link = linksData.find(l => l.id === analytics.link_id);
-        return {
-          id: analytics.id,
-          action: "Link clicked",
-          url: link ? `ekrypt.vercel.app/${link.short_code}` : "Unknown",
-          ip: analytics.ip?.replace(/\.\d+$/, '.xxx') || "Unknown", // Mask last octet for privacy
-          country: analytics.country || "Unknown",
-          device: analytics.device_type || "Unknown",
-          browser: analytics.browser || "Unknown",
-          timestamp: formatDateTime(analytics.timestamp),
-        };
+      // Process clicks over time (last 7 days)
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return date.toISOString().split("T")[0];
       });
 
-    setRecentActivity(recentActivityProcessed);
-  }, []);
+      const clicksByDate: ChartData[] = last7Days.map((date) => {
+        const clicksOnDate = analyticsData.filter(
+          (analytics) => analytics.timestamp.split("T")[0] === date
+        ).length;
+        return { date, clicks: clicksOnDate };
+      });
+
+      setClicksOverTime(clicksByDate);
+
+      // Process OS data
+      const osStats: Record<string, number> = {};
+      analyticsData.forEach((analytics) => {
+        const os = analytics.os || "Unknown";
+        osStats[os] = (osStats[os] || 0) + 1;
+      });
+
+      const osDataProcessed: PieChartData[] = Object.entries(osStats)
+        .map(([name, value], index) => ({
+          name,
+          value,
+          color: ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"][
+            index % 5
+          ],
+        }))
+        .slice(0, 5);
+
+      setOsData(osDataProcessed);
+
+      // Process browser data
+      const browserStats: Record<string, number> = {};
+      analyticsData.forEach((analytics) => {
+        const browser = analytics.browser || "Unknown";
+        browserStats[browser] = (browserStats[browser] || 0) + 1;
+      });
+
+      const browserDataProcessed: BarChartData[] = Object.entries(browserStats)
+        .map(([name, clicks]) => ({ name, clicks }))
+        .sort((a, b) => b.clicks - a.clicks)
+        .slice(0, 5);
+
+      setBrowserData(browserDataProcessed);
+
+      // Process country data
+      const countryStats: Record<string, number> = {};
+      analyticsData.forEach((analytics) => {
+        const country = analytics.country || "Unknown";
+        countryStats[country] = (countryStats[country] || 0) + 1;
+      });
+
+      const countryDataProcessed: BarChartData[] = Object.entries(countryStats)
+        .map(([name, clicks]) => ({ name, clicks }))
+        .sort((a, b) => b.clicks - a.clicks)
+        .slice(0, 5);
+
+      setCountryData(countryDataProcessed);
+
+      // Process device data
+      const deviceStats: Record<string, number> = {};
+      analyticsData.forEach((analytics) => {
+        const device = analytics.device_type || "Unknown";
+        deviceStats[device] = (deviceStats[device] || 0) + 1;
+      });
+
+      const deviceDataProcessed: PieChartData[] = Object.entries(
+        deviceStats
+      ).map(([name, value], index) => ({
+        name,
+        value,
+        color: ["#3B82F6", "#8B5CF6", "#10B981"][index % 3],
+      }));
+
+      setDeviceData(deviceDataProcessed);
+
+      // Process recent activity
+      const recentActivityProcessed: ActivityLog[] = analyticsData
+        .slice(0, 10)
+        .map((analytics) => {
+          const link = linksData.find((l) => l.id === analytics.link_id);
+          return {
+            id: analytics.id,
+            action: "Link clicked",
+            url: link ? `ekrypt.vercel.app/${link.short_code}` : "Unknown",
+            ip: analytics.ip?.replace(/\.\d+$/, ".xxx") || "Unknown", // Mask last octet for privacy
+            country: analytics.country || "Unknown",
+            device: analytics.device_type || "Unknown",
+            browser: analytics.browser || "Unknown",
+            timestamp: formatDateTime(analytics.timestamp),
+          };
+        });
+
+      setRecentActivity(recentActivityProcessed);
+    },
+    []
+  );
 
   // Fetch user session and data
   useEffect(() => {
@@ -291,7 +317,7 @@ export default function Dashboard() {
 
         const {
           data: { session },
-          error: sessionError
+          error: sessionError,
         } = await supabase.auth.getSession();
 
         if (sessionError) throw sessionError;
@@ -305,7 +331,9 @@ export default function Dashboard() {
         await fetchDashboardData(session.user.id);
       } catch (err) {
         console.error("Error loading dashboard:", err);
-        setError(err instanceof Error ? err.message : "An unknown error occurred");
+        setError(
+          err instanceof Error ? err.message : "An unknown error occurred"
+        );
       } finally {
         setLoading(false);
       }
@@ -334,17 +362,17 @@ export default function Dashboard() {
 
   const handleDeleteLink = async (linkId: string) => {
     if (!user) return;
-    
+
     try {
       const { error } = await supabase
-        .from('links')
+        .from("links")
         .update({ deleted_at: new Date().toISOString() })
-        .eq('id', linkId);
-      
+        .eq("id", linkId);
+
       if (error) throw error;
       await fetchDashboardData(user.id);
     } catch (err) {
-      console.error('Error deleting link:', err);
+      console.error("Error deleting link:", err);
     }
   };
 
@@ -459,7 +487,9 @@ export default function Dashboard() {
               // Empty state for analytics
               <div className="text-center py-16">
                 <BarChart3 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">No Analytics Data</h3>
+                <h3 className="text-xl font-semibold mb-2">
+                  No Analytics Data
+                </h3>
                 <p className="text-gray-400 mb-6">
                   Create your first link to start tracking analytics
                 </p>
@@ -529,7 +559,9 @@ export default function Dashboard() {
                 {analytics.length === 0 ? (
                   <div className="bg-gray-800/50 backdrop-blur-md p-12 rounded-xl border border-gray-700 text-center">
                     <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Click Data Yet</h3>
+                    <h3 className="text-lg font-semibold mb-2">
+                      No Click Data Yet
+                    </h3>
                     <p className="text-gray-400">
                       Share your links to start seeing analytics data
                     </p>
@@ -538,11 +570,16 @@ export default function Dashboard() {
                   <>
                     {/* Clicks Over Time Chart */}
                     <div className="bg-gray-800/50 backdrop-blur-md p-6 rounded-xl border border-gray-700">
-                      <h3 className="text-xl font-semibold mb-6">Clicks Over Time (Last 7 Days)</h3>
+                      <h3 className="text-xl font-semibold mb-6">
+                        Clicks Over Time (Last 7 Days)
+                      </h3>
                       <div className="h-80">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={clicksOverTime}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <CartesianGrid
+                              strokeDasharray="3 3"
+                              stroke="#374151"
+                            />
                             <XAxis dataKey="date" stroke="#9CA3AF" />
                             <YAxis stroke="#9CA3AF" />
                             <Tooltip
@@ -586,7 +623,10 @@ export default function Dashboard() {
                                   }
                                 >
                                   {osData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                    <Cell
+                                      key={`cell-${index}`}
+                                      fill={entry.color}
+                                    />
                                   ))}
                                 </Pie>
                                 <Tooltip />
@@ -599,7 +639,9 @@ export default function Dashboard() {
                       {/* Device Types */}
                       {deviceData.length > 0 && (
                         <div className="bg-gray-800/50 backdrop-blur-md p-6 rounded-xl border border-gray-700">
-                          <h3 className="text-xl font-semibold mb-6">Device Types</h3>
+                          <h3 className="text-xl font-semibold mb-6">
+                            Device Types
+                          </h3>
                           <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
@@ -614,7 +656,10 @@ export default function Dashboard() {
                                   }
                                 >
                                   {deviceData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                    <Cell
+                                      key={`cell-${index}`}
+                                      fill={entry.color}
+                                    />
                                   ))}
                                 </Pie>
                                 <Tooltip />
@@ -630,11 +675,16 @@ export default function Dashboard() {
                       {/* Browsers */}
                       {browserData.length > 0 && (
                         <div className="bg-gray-800/50 backdrop-blur-md p-6 rounded-xl border border-gray-700">
-                          <h3 className="text-xl font-semibold mb-6">Top Browsers</h3>
+                          <h3 className="text-xl font-semibold mb-6">
+                            Top Browsers
+                          </h3>
                           <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart data={browserData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                <CartesianGrid
+                                  strokeDasharray="3 3"
+                                  stroke="#374151"
+                                />
                                 <XAxis dataKey="name" stroke="#9CA3AF" />
                                 <YAxis stroke="#9CA3AF" />
                                 <Tooltip
@@ -654,11 +704,16 @@ export default function Dashboard() {
                       {/* Countries */}
                       {countryData.length > 0 && (
                         <div className="bg-gray-800/50 backdrop-blur-md p-6 rounded-xl border border-gray-700">
-                          <h3 className="text-xl font-semibold mb-6">Top Countries</h3>
+                          <h3 className="text-xl font-semibold mb-6">
+                            Top Countries
+                          </h3>
                           <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart data={countryData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                <CartesianGrid
+                                  strokeDasharray="3 3"
+                                  stroke="#374151"
+                                />
                                 <XAxis dataKey="name" stroke="#9CA3AF" />
                                 <YAxis stroke="#9CA3AF" />
                                 <Tooltip
@@ -679,7 +734,9 @@ export default function Dashboard() {
                     {/* Activity Logs */}
                     {recentActivity.length > 0 && (
                       <div className="bg-gray-800/50 backdrop-blur-md p-6 rounded-xl border border-gray-700">
-                        <h3 className="text-xl font-semibold mb-6">Recent Activity</h3>
+                        <h3 className="text-xl font-semibold mb-6">
+                          Recent Activity
+                        </h3>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead>
@@ -742,7 +799,7 @@ export default function Dashboard() {
           </div>
         )}
 
-              {/* My Links Tab */}
+        {/* My Links Tab */}
         {activeTab === "links" && (
           <div className="space-y-6">
             {/* Header with Actions */}
@@ -751,7 +808,7 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold">My Links</h2>
                 <p className="text-gray-400">Manage all your shortened links</p>
               </div>
-              <button 
+              <button
                 onClick={() => router.push("/create")}
                 className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center space-x-2"
               >
@@ -764,7 +821,9 @@ export default function Dashboard() {
               // Empty state for links
               <div className="bg-gray-800/50 backdrop-blur-md rounded-xl border border-gray-700 p-16 text-center">
                 <Link2 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">No Links Created Yet</h3>
+                <h3 className="text-xl font-semibold mb-2">
+                  No Links Created Yet
+                </h3>
                 <p className="text-gray-400 mb-6">
                   Create your first shortened link to get started
                 </p>
@@ -822,9 +881,13 @@ export default function Dashboard() {
                               </div>
                             </td>
                             <td className="py-4 px-6">
-                              <div 
+                              <div
                                 className="font-mono text-blue-400 hover:underline cursor-pointer"
-                                onClick={() => copyToClipboard(`ekrypt.vercel.app/${link.short_code}`)}
+                                onClick={() =>
+                                  copyToClipboard(
+                                    `ekrypt.vercel.app/${link.short_code}`
+                                  )
+                                }
                               >
                                 ekrypt.vercel.app/{link.short_code}
                               </div>
@@ -844,7 +907,9 @@ export default function Dashboard() {
                             </td>
                             <td className="py-4 px-6">
                               <span
-                                className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(status)}`}
+                                className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                                  status
+                                )}`}
                               >
                                 {status}
                               </span>
@@ -857,17 +922,24 @@ export default function Dashboard() {
                                 <button
                                   className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
                                   title="View Analytics"
-                                  onClick={() => {
-                                    setActiveTab("analytics");
-                                    // You might want to filter analytics for this link
-                                  }}
+                                  // onClick={() => {
+                                  //   setActiveTab("analytics");
+                                  //   // You might want to filter analytics for this link
+                                  // }}
+                                  onClick={() =>
+                                    router.push(`/link/${link.short_code}`)
+                                  }
                                 >
                                   <BarChart3 className="h-4 w-4" />
                                 </button>
                                 <button
                                   className="p-2 text-gray-400 hover:text-green-400 transition-colors"
                                   title="Copy Link"
-                                  onClick={() => copyToClipboard(`ekrypt.vercel.app/${link.short_code}`)}
+                                  onClick={() =>
+                                    copyToClipboard(
+                                      `ekrypt.vercel.app/${link.short_code}`
+                                    )
+                                  }
                                 >
                                   <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -887,7 +959,9 @@ export default function Dashboard() {
                                 <button
                                   className="p-2 text-gray-400 hover:text-yellow-400 transition-colors"
                                   title="Edit Link"
-                                  onClick={() => router.push(`/edit/${link.id}`)}
+                                  onClick={() =>
+                                    router.push(`/edit/${link.id}`)
+                                  }
                                 >
                                   <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -907,7 +981,10 @@ export default function Dashboard() {
                                 <button
                                   className="p-2 text-gray-400 hover:text-red-400 transition-colors"
                                   title="Delete Link"
-                                  onClick={()=>{handleDeleteLink(link.id);}}
+                                  onClick={() => {
+                                    setLinkToDelete(link.id);
+                                    setDeleteModalOpen(true);
+                                  }}
                                 >
                                   <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -939,7 +1016,7 @@ export default function Dashboard() {
                     Showing 1 to {links.length} of {links.length} results
                   </div>
                   <div className="flex items-center space-x-2">
-                    <button 
+                    <button
                       disabled
                       className="px-3 py-1 text-gray-400 border border-gray-700 rounded transition-colors cursor-not-allowed"
                     >
@@ -948,7 +1025,7 @@ export default function Dashboard() {
                     <button className="px-3 py-1 bg-blue-600 text-white rounded">
                       1
                     </button>
-                    <button 
+                    <button
                       disabled
                       className="px-3 py-1 text-gray-400 border border-gray-700 rounded transition-colors cursor-not-allowed"
                     >
@@ -958,6 +1035,35 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* Delete Confirmation Modal */}
+        {deleteModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full border border-gray-700">
+              <h3 className="text-xl font-bold mb-4">Delete Link</h3>
+              <p className="text-gray-300 mb-6">
+                Are you sure you want to delete this link? This action cannot be
+                undone.
+              </p>
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => setDeleteModalOpen(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleDeleteLink(linkToDelete!);
+                    setDeleteModalOpen(false);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
